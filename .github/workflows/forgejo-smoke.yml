@@ -4,8 +4,8 @@
 # that encode our reading of the API. This workflow starts a throwaway Forgejo
 # container, seeds a repo, an issue and a pull request through its REST API,
 # and runs src/pkg/forge/forgejo_smoke_test.go (build tag forgejo_smoke): read
-# the issue → kick it (comment + label) → merge the PR through forge.Merger,
-# including the hold gate (#14116, part of #14096).
+# the issue → kick it (comment + label) → remove the label → merge the PR
+# through forge.Merger, including the hold gate (#14116, part of #14096).
 #
 # Cadence (maintainer ruling on #14116): nightly, plus push/PR runs
 # path-filtered to the forge adapter, the API proxy write-gate and this file.

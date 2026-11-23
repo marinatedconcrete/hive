@@ -1,7 +1,7 @@
 //go:build forgejo_smoke
 
-// Forgejo smoke: runs the minimal governor loop (read issue → kick → merge via
-// forge.Merger) against a live, throwaway Forgejo instance seeded by
+// Forgejo smoke: runs the minimal governor loop (read issue → kick → unlabel →
+// merge via forge.Merger) against a live, throwaway Forgejo instance seeded by
 // .github/workflows/forgejo-smoke.yml. It is excluded from the normal test
 // run by the forgejo_smoke build tag and needs:
 //
@@ -77,6 +77,27 @@ func smokeIssueComments(ctx context.Context, baseURL, token, repo string, number
 	return out, nil
 }
 
+func smokeHasLabel(ctx context.Context, t *testing.T, f forge.Forge, repo string, number int, label string) bool {
+	t.Helper()
+	issues, err := f.ListOpenIssues(ctx, repo)
+	if err != nil {
+		t.Fatalf("ListOpenIssues: %v", err)
+	}
+	for _, is := range issues {
+		if is.Number != number {
+			continue
+		}
+		for _, l := range is.Labels {
+			if l == label {
+				return true
+			}
+		}
+		return false
+	}
+	t.Fatalf("issue #%d not among %d open issues", number, len(issues))
+	return false
+}
+
 func TestForgejoSmoke(t *testing.T) {
 	baseURL := smokeEnv(t, "FORGEJO_URL")
 	token := smokeEnv(t, "FORGEJO_TOKEN")
@@ -87,12 +108,12 @@ func TestForgejoSmoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	f, err := forge.NewForge(forge.KindGitea, token, forge.Options{BaseURL: baseURL})
+	f, err := forge.NewForge(forge.KindForgejo, token, forge.Options{BaseURL: baseURL})
 	if err != nil {
-		t.Fatalf("NewForge(%q): %v", forge.KindGitea, err)
+		t.Fatalf("NewForge(%q): %v", forge.KindForgejo, err)
 	}
-	if f.Kind() != forge.KindGitea {
-		t.Fatalf("Kind() = %q, want %q", f.Kind(), forge.KindGitea)
+	if f.Kind() != forge.KindForgejo {
+		t.Fatalf("Kind() = %q, want %q", f.Kind(), forge.KindForgejo)
 	}
 	merger, ok := f.(forge.Merger)
 	if !ok {
@@ -160,23 +181,15 @@ func TestForgejoSmoke(t *testing.T) {
 	if !kicked {
 		t.Fatalf("kick comment not found on issue #%d", issueNum)
 	}
-	issues, err = f.ListOpenIssues(ctx, repo)
-	if err != nil {
-		t.Fatalf("ListOpenIssues after kick: %v", err)
-	}
-	labelled := false
-	for _, is := range issues {
-		if is.Number != issueNum {
-			continue
-		}
-		for _, l := range is.Labels {
-			if l == smokeKickLabel {
-				labelled = true
-			}
-		}
-	}
-	if !labelled {
+	if !smokeHasLabel(ctx, t, f, repo, issueNum, smokeKickLabel) {
 		t.Fatalf("issue #%d missing %q label after kick", issueNum, smokeKickLabel)
+	}
+
+	if err := f.RemoveLabel(ctx, repo, issueNum, smokeKickLabel); err != nil {
+		t.Fatalf("RemoveLabel: %v", err)
+	}
+	if smokeHasLabel(ctx, t, f, repo, issueNum, smokeKickLabel) {
+		t.Fatalf("issue #%d still has %q label after RemoveLabel", issueNum, smokeKickLabel)
 	}
 
 	// 3. Merge via forge.Merger, through the hold gate.
